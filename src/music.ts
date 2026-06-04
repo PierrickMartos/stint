@@ -93,6 +93,9 @@ let streamFailed = false; // stream URL failed to load → bundled until source 
 // stale async spotifyControl result can't trigger the fallback over a newer
 // source or session — only the latest call's .then may act.
 let spotifyGen = 0;
+// True once this session's URI actually reached Spotify, so unmute resumes
+// the paused track instead of restarting the playlist from the top.
+let spotifyStarted = false;
 
 /** True while lifecycle calls should go to the Spotify app, not <audio>. */
 function useSpotify(): boolean {
@@ -154,10 +157,13 @@ export const MusicAdapter: MusicPort = {
   setEnabled(on: boolean) {
     enabled = on;
     if (useSpotify()) {
-      // Re-issue the full play (with URI) on unmute so the right context plays
-      // even if the session started muted; pause on mute.
-      if (on && shouldPlay) this.start();
-      else if (!on) void spotifyControl('pause');
+      // Unmute unpauses the track if this session's playback already reached
+      // Spotify; only a session that started muted issues the full play (with
+      // URI) — restarting the context on every unmute would skip songs.
+      if (on && shouldPlay) {
+        if (spotifyStarted) this.resume();
+        else this.start();
+      } else if (!on) void spotifyControl('pause');
       return;
     }
     if (on && shouldPlay) play();
@@ -174,6 +180,7 @@ export const MusicAdapter: MusicPort = {
     disposeAudio();
     source = parseMusicSource(raw);
     spotifyFallback = false;
+    spotifyStarted = false;
     streamFailed = false;
     if (shouldPlay && enabled) this.start();
   },
@@ -182,9 +189,15 @@ export const MusicAdapter: MusicPort = {
     if (!enabled) return;
     if (source.kind === 'spotify') {
       spotifyFallback = false; // retry Spotify each session
+      spotifyStarted = false;
       const gen = ++spotifyGen;
       void spotifyControl('play', source.uri).then((ok) => {
-        if (ok || gen !== spotifyGen || !shouldPlay || !enabled) return;
+        if (gen !== spotifyGen) return; // superseded — let the newer call decide
+        if (ok) {
+          spotifyStarted = true;
+          return;
+        }
+        if (!shouldPlay || !enabled) return;
         spotifyFallback = true; // Spotify unavailable — bundled for this session
         startAudio();
       });
@@ -217,6 +230,7 @@ export const MusicAdapter: MusicPort = {
   stop() {
     shouldPlay = false;
     if (useSpotify()) void spotifyControl('pause');
+    spotifyStarted = false; // next session re-issues the full play
     if (audio) {
       audio.pause();
       audio.currentTime = 0;
