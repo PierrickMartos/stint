@@ -1,6 +1,6 @@
 <h1 align="center">Stint</h1>
 
-<h3 align="center">A calm, single-purpose focus timer for macOS. One click to start, a quiet countdown while you work, a gentle chime when time's up. Not a Pomodoro suite, not a task manager — just a timer that respects your attention.</h3>
+<h3 align="center">A calm, single-purpose focus timer for your desktop. One click to start, a quiet countdown while you work, a gentle chime when time's up. Not a Pomodoro suite, not a task manager — just a timer that respects your attention.</h3>
 
 <p align="center">
   <a href="https://github.com/PierrickMartos/stint/releases/latest"><img src="https://img.shields.io/github/v/release/PierrickMartos/stint" alt="Latest release"></a>
@@ -24,12 +24,13 @@
 | **Accurate & relaunch-safe** | The engine counts down to an absolute end timestamp — never a decrementing counter — so it stays exact through sleep, hidden windows, and even an app restart mid-timer. |
 | **Keyboard-first** | `Space` to start / pause / resume, `Esc` to cancel. That's the whole manual. |
 | **Tiny footprint** | A native Tauri app using the system WebView: the whole thing is ~8 MB. |
+| **Cross-platform** | macOS (universal), Windows, and Linux builds from one codebase, published on every release. |
 
 ## Install
 
-> **macOS only** (universal binary — Apple Silicon & Intel).
+Every release ships native bundles for all three platforms — grab yours from [the latest release](https://github.com/PierrickMartos/stint/releases/latest).
 
-### One-liner (recommended)
+### macOS — one-liner (recommended)
 
 Installs the latest release into `/Applications` — run the same command again any time to update:
 
@@ -37,22 +38,38 @@ Installs the latest release into `/Applications` — run the same command again 
 curl -fsSL https://raw.githubusercontent.com/PierrickMartos/stint/main/scripts/install.sh | bash
 ```
 
-Because the script downloads via `curl`, the app arrives without Gatekeeper's quarantine flag and opens straight away.
-
-### Or download the DMG
-
-Grab [the latest `.dmg`](https://github.com/PierrickMartos/stint/releases/latest) and drag **Stint** to Applications. The app is not notarized (no Apple Developer account), so after a browser download macOS will object on first launch — clear it with:
+Because the script downloads via `curl`, the app arrives without Gatekeeper's quarantine flag and opens straight away. If you download the `.dmg` with a browser instead, the app is not notarized (no Apple Developer account), so clear the flag on first launch:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Stint.app
 ```
 
+### Windows
+
+Download the `.msi` (or NSIS `.exe`) installer from [the latest release](https://github.com/PierrickMartos/stint/releases/latest) and run it. The binary is unsigned, so SmartScreen will ask once — **More info → Run anyway**.
+
+### Linux
+
+Pick your format from [the latest release](https://github.com/PierrickMartos/stint/releases/latest):
+
+```bash
+# AppImage — portable, any distro
+chmod +x Stint_*.AppImage && ./Stint_*.AppImage
+
+# Debian / Ubuntu
+sudo dpkg -i Stint_*.deb
+
+# Fedora / RHEL
+sudo rpm -i Stint-*.rpm
+```
+
+> The frameless rounded window needs a compositor (default on GNOME/KDE); without one it falls back to square corners.
+
 ### Or build from source
 
 ```bash
-# 1. One-time: Rust + Node
+# 1. One-time: Rust + Node (+ Linux system deps — see https://tauri.app/start/prerequisites/)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-brew install node
 
 # 2. Clone and build
 git clone https://github.com/PierrickMartos/stint.git
@@ -60,7 +77,7 @@ cd stint
 npm install
 npm run tauri build
 
-# 3. The app lands in src-tauri/target/release/bundle/macos/Stint.app
+# 3. Bundles land in src-tauri/target/release/bundle/
 ```
 
 ## Keyboard shortcuts
@@ -80,7 +97,7 @@ npm run tauri build
 
 ## Releases
 
-Tag a version matching `src-tauri/tauri.conf.json` and push — GitHub Actions builds the universal macOS bundle and publishes the DMG:
+Tag a version matching `src-tauri/tauri.conf.json` and push — GitHub Actions builds native bundles on macOS (universal), Windows, and Linux runners and publishes them all to one GitHub Release:
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0

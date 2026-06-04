@@ -1,9 +1,13 @@
 # Release pipeline: push a tag like `v0.1.0` (matching the version in
-# src-tauri/tauri.conf.json) and this builds a universal macOS bundle
-# (Apple Silicon + Intel) and publishes the .dmg to a GitHub Release.
+# src-tauri/tauri.conf.json) and this builds native bundles for every
+# desktop platform and publishes them to a single GitHub Release:
+#
+#   macOS    universal .dmg (Apple Silicon + Intel)
+#   Windows  .msi + NSIS .exe installer
+#   Linux    .AppImage, .deb, .rpm
 #
 # The install script (scripts/install.sh) and the README's download links
-# both point at the latest release produced here.
+# point at the latest release produced here.
 name: Release
 
 on:
@@ -16,8 +20,22 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: windows-latest
+            args: ''
+            rust-targets: ''
+          - platform: ubuntu-22.04
+            args: ''
+            rust-targets: ''
+
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,11 +46,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.rust-targets }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libayatana-appindicator3-dev
 
       - run: npm ci
 
@@ -43,7 +68,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Stint ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install this version. Or run the [install one-liner](https://github.com/PierrickMartos/stint#install) — it always fetches the latest release.'
+          releaseBody: 'See the assets below to download and install this version. On macOS, the [install one-liner](https://github.com/PierrickMartos/stint#install) always fetches the latest release.'
           releaseDraft: false
           prerelease: false
-          args: --target universal-apple-darwin
+          args: ${{ matrix.args }}
