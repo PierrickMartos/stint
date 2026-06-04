@@ -8,7 +8,7 @@ import './styles.css';
 import { fmt, parseDuration } from './format';
 import { TimerEngine } from './engine';
 import { AlarmAdapter } from './alarm';
-import { MusicAdapter } from './music';
+import { MusicAdapter, sourceLabel } from './music';
 import { loadSettings, saveSettings } from './settings';
 import { isTauri, resizeWindow, wireDragRegions } from './shell';
 
@@ -85,6 +85,7 @@ function render(): void {
 const settings = loadSettings();
 MusicAdapter.setEnabled(settings.music);
 MusicAdapter.setVolume(settings.volume);
+MusicAdapter.setSource(settings.musicSource);
 
 const engine = new TimerEngine(AlarmAdapter, MusicAdapter, render);
 
@@ -163,6 +164,8 @@ const settingsBtn = $('toggle-settings');
 const musicToggle = $('music-toggle');
 const muteBtns = [$('mute-btn'), $('mute-btn-compact')];
 const volumeSlider = $<HTMLInputElement>('music-volume');
+const sourceInput = $<HTMLInputElement>('music-source');
+const sourceHint = $('music-source-hint');
 const settingsPresetRow = $('settings-preset-row');
 const settingsPresetLast = $('settings-preset-last');
 
@@ -179,6 +182,8 @@ function renderSettings(): void {
     b.title = settings.music ? 'Mute focus music' : 'Unmute focus music';
   });
   volumeSlider.value = String(Math.round(settings.volume * 100));
+  sourceInput.value = settings.musicSource;
+  sourceHint.textContent = sourceLabel(settings.musicSource);
   settingsPresetLast.classList.toggle('selected', settings.defaultPresetMin == null);
   presetChips.forEach(([min, btn]) =>
     btn.classList.toggle('selected', settings.defaultPresetMin === min),
@@ -217,6 +222,18 @@ volumeSlider.addEventListener('input', () => {
   settings.volume = Number(volumeSlider.value) / 100;
   saveSettings(settings);
   MusicAdapter.setVolume(settings.volume);
+});
+
+// Hint tracks the detected mode live while typing; the source itself applies
+// on change (Enter/blur) so playback doesn't restart on every keystroke.
+sourceInput.addEventListener('input', () => {
+  sourceHint.textContent = sourceLabel(sourceInput.value);
+});
+sourceInput.addEventListener('change', () => {
+  settings.musicSource = sourceInput.value.trim();
+  saveSettings(settings);
+  MusicAdapter.setSource(settings.musicSource);
+  renderSettings();
 });
 
 function selectDefaultPreset(min: number | null): void {

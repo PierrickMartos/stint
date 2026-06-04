@@ -214,6 +214,17 @@ html.in-tauri .window {
   background: var(--accent); border: none;
 }
 
+/* music source input + detected-mode hint */
+.source-input {
+  width: 100%; box-sizing: border-box; padding: 7px 10px;
+  background: var(--surface3); border: 1px solid var(--outline);
+  border-radius: 8px; color: var(--text);
+  font: inherit; font-size: 12px; outline: none;
+}
+.source-input:focus { border-color: var(--accent); }
+.source-input::placeholder { color: var(--text-dim); }
+.settings-hint { font-size: 11px; color: var(--text-dim); }
+
 /* default-preset chips: settings panel buttons sit on the panel surface */
 .settings-panel .preset-btn { background: var(--surface3); }
 .settings-panel .preset-btn:hover { background: var(--panel); }

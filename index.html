@@ -60,6 +60,13 @@
                  aria-label="Focus music volume" />
         </div>
         <div class="settings-row column">
+          <span class="settings-label">Music source</span>
+          <input class="source-input" id="music-source" type="text"
+                 placeholder="Paste an audio URL or Spotify link"
+                 aria-label="Music source" spellcheck="false" autocomplete="off" />
+          <span class="settings-hint" id="music-source-hint">Bundled track</span>
+        </div>
+        <div class="settings-row column">
           <span class="settings-label">Space starts</span>
           <div class="preset-row small" id="settings-preset-row">
             <button class="preset-btn small" id="settings-preset-last">Last used</button>
