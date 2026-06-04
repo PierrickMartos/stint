@@ -2,8 +2,12 @@
 /// Other platforms return Err, which the frontend treats as "fall back to
 /// the bundled track". The URI is validated to spotify:kind:base62id before
 /// interpolation so no arbitrary text reaches osascript.
+///
+/// `async` so the blocking osascript call runs on the async runtime instead of
+/// the main thread — a cold Spotify launch can take seconds and must not
+/// freeze the UI.
 #[tauri::command]
-fn spotify_control(action: String, uri: Option<String>) -> Result<(), String> {
+async fn spotify_control(action: String, uri: Option<String>) -> Result<(), String> {
   #[cfg(target_os = "macos")]
   {
     let script = match action.as_str() {
