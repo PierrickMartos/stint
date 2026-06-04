@@ -8,9 +8,9 @@
 </p>
 
 <p align="center">
-  <img src="images/ready.png" alt="Stint ready to start" width="290">
-  <img src="images/compact.png" alt="Stint compact mode — slim glanceable bar" width="290">
-  <img src="images/done.png" alt="Stint completion — time's up" width="290">
+  <img src="images/ready.png" alt="Stint ready to start" width="265">
+  <img src="images/compact.png" alt="Stint compact mode — slim glanceable bar" width="265">
+  <img src="images/done.png" alt="Stint completion — time's up" width="265">
 </p>
 
 ## Features
