@@ -37,7 +37,9 @@ export function loadSettings(): Settings {
       defaultPresetMin:
         typeof saved.defaultPresetMin === 'number' ? saved.defaultPresetMin : null,
       musicSource:
-        typeof saved.musicSource === 'string' ? saved.musicSource.trim() : '',
+        typeof saved.musicSource === 'string'
+          ? saved.musicSource.trim()
+          : DEFAULTS.musicSource,
     };
   } catch {
     return { ...DEFAULTS };
