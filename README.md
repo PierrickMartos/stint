@@ -18,14 +18,14 @@
 |  |  |
 |---|---|
 | **One-click start** | Presets for 5 / 10 / 15 / 30 minutes start the countdown immediately. Click the big numerals to type any custom duration (`12:30`, `7`, `12.5`). |
-| **Focus music** | A bundled lo-fi track ("Morning Coffee" by [HoliznaCC0](https://freemusicarchive.org/music/holiznacc0/lo-fi-and-chill), CC0 / public domain) loops softly while you focus. On by default — switch it off from the ⚙ settings panel. |
+| **Focus music** | A bundled lo-fi track ("Morning Coffee" by [HoliznaCC0](https://freemusicarchive.org/music/holiznacc0/lo-fi-and-chill), CC0 / public domain) loops softly while you focus. On by default — adjust the volume in the ⚙ settings panel, or mute it with one click from either layout's ♪ button. |
 | **Your default stint** | Pin a preset in settings and `Space` always starts it — or leave it on "Last used". |
 | **The countdown is the hero** | A large tabular display with a depleting progress ring. Distinct, calm states for ready / focusing / paused / time's up. |
 | **Gentle alarm + native notification** | A soft two-note chime repeats until dismissed, paired with a macOS notification — you won't miss the end, and it won't startle you. |
 | **Compact mode** | Collapse the window to a slim 376×116 glanceable bar that floats anywhere on your desktop, with the essentials one click away. |
 | **Accurate & relaunch-safe** | The engine counts down to an absolute end timestamp — never a decrementing counter — so it stays exact through sleep, hidden windows, and even an app restart mid-timer. |
 | **Keyboard-first** | `Space` to start / pause / resume, `Esc` to cancel. That's the whole manual. |
-| **Tiny footprint** | A native Tauri app using the system WebView: the whole thing is ~8 MB. |
+| **Tiny footprint** | A native Tauri app using the system WebView: the whole thing is ~11 MB — and ~3 MB of that is the music. |
 | **Cross-platform** | macOS (universal), Windows, and Linux builds from one codebase, published on every release. |
 
 ## Install
@@ -94,7 +94,7 @@ npm run tauri build
 
 1. **Timestamp engine** — starting a timer stores an absolute end time; every frame derives `remaining = endTime − now`. Pausing freezes the remainder; resuming recomputes the end time. A `setTimeout` fallback guarantees completion fires even when rendering is throttled in a hidden window.
 2. **Relaunch-safe** — lifecycle changes persist to local storage. Quit mid-countdown and reopen: the timer is still running, on time. A timer that expired while the app was closed resets quietly instead of blaring the alarm at launch.
-3. **Isolated side-effects** — all completion behavior (WebAudio chime loop, native notification via Tauri's notification plugin) lives behind a single `AlarmAdapter`, and all window-shell concerns (native resize for compact mode, drag regions) behind `shell.ts`.
+3. **Isolated side-effects** — all completion behavior (WebAudio chime loop, native notification via Tauri's notification plugin) lives behind a single `AlarmAdapter`, all music playback behind a `MusicAdapter` (the engine starts/pauses/stops it but never touches the `<audio>` element), and all window-shell concerns (native resize for compact mode, drag regions) behind `shell.ts`.
 4. **The window is the app** — a frameless, transparent native window renders the floating panel directly; the compact toggle resizes the real window between 440×560 and 376×116.
 
 ## Releases
@@ -109,8 +109,11 @@ git tag v0.1.0 && git push origin v0.1.0
 
 - `src/engine.ts` — timestamp-based countdown state machine + persistence
 - `src/alarm.ts` — chime + native notification behind one adapter
+- `src/music.ts` — looping focus-music playback behind one adapter (volume, mute, autoplay-retry)
+- `src/settings.ts` — typed load/save of user preferences (music, volume, default preset)
 - `src/shell.ts` — Tauri window integration (resize, drag, environment detection)
-- `src/main.ts` — DOM wiring and the single render function
+- `src/main.ts` — DOM wiring, settings panel, and the single render function
+- `src/assets/focus-music.m4a` — "Morning Coffee" by HoliznaCC0 (CC0 1.0), re-encoded to 128 kbps AAC
 - `src-tauri/` — Rust shell, window config, icons (`icon-source.svg` is the mark's source of truth)
 - `Timer.html` — the original verified single-file implementation the app derives from
 
