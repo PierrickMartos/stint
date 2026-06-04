@@ -11,11 +11,18 @@ export interface Settings {
   volume: number;
   /** Preset (minutes) the Space shortcut starts from idle; null = last used. */
   defaultPresetMin: number | null;
+  /** Music override: '' = bundled, http(s) URL = stream, Spotify link/URI = local app. */
+  musicSource: string;
 }
 
 const SETTINGS_KEY = 'stint.settings';
 
-const DEFAULTS: Settings = { music: true, volume: 0.35, defaultPresetMin: null };
+const DEFAULTS: Settings = {
+  music: true,
+  volume: 0.35,
+  defaultPresetMin: null,
+  musicSource: '',
+};
 
 export function loadSettings(): Settings {
   try {
@@ -29,6 +36,8 @@ export function loadSettings(): Settings {
           : DEFAULTS.volume,
       defaultPresetMin:
         typeof saved.defaultPresetMin === 'number' ? saved.defaultPresetMin : null,
+      musicSource:
+        typeof saved.musicSource === 'string' ? saved.musicSource.trim() : '',
     };
   } catch {
     return { ...DEFAULTS };
