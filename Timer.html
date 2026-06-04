@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Span — Focus Timer</title>
+
+<!--
+  ============================================================================
+  Span — Focus Timer (Direction B "Soft premium")
+  ----------------------------------------------------------------------------
+  Implementation notes / adaptation decisions
+  ----------------------------------------------------------------------------
+  • Source: a React/Babel prototype (timer.jsx + Span.html). This file is the
+    production recreation as a SINGLE self-contained vanilla HTML/CSS/JS file —
+    no React, no Babel, no build step, no CDN frameworks. Only external loads
+    are Google Fonts (Roboto + Material Symbols Outlined), with system
+    fallbacks so the UI degrades gracefully offline.
+
+  • Target shell: Tauri. The window chrome strip is marked both with
+    `-webkit-app-region: drag` (with buttons opted out via `no-drag`) and the
+    `data-tauri-drag-region` attribute so the future Tauri shell can move the
+    frameless window. Buttons inside the strip are `no-drag`.
+
+  • Engine is timestamp-based for accuracy (see TimerEngine): on start we store
+    an absolute end timestamp; the rAF tick derives `remaining = endTime - now`
+    rather than decrementing a counter. A setTimeout fallback guarantees
+    completion fires even when rAF is throttled in a hidden/backgrounded window.
+    Lifecycle changes (not every tick) persist to localStorage 'span.timer'.
+
+  • All completion side-effects are isolated behind AlarmAdapter so the Tauri
+    port only needs to swap that one object (e.g. for native notifications).
+  ============================================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600&display=swap" />
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
+
+<style>
+  /* ── Design tokens (Direction B — "Soft premium") ────────────────────── */
+  :root {
+    --accent:      #8C9BFF;
+    --accent-ink:  #10122E;
+    --accent-soft: rgba(140, 155, 255, 0.16);
+    --panel:       #1B1B22;
+    --surface2:    #22232C;
+    --surface3:    #2B2C37;
+    --text:        #E9E8EF;
+    --text-dim:    rgba(233, 232, 239, 0.56);
+    --faint:       rgba(233, 232, 239, 0.34);
+    --outline:     rgba(233, 232, 239, 0.09);
+
+    --win-radius:        28px;
+    --win-radius-compact:20px;
+    --num-font:    'Roboto', system-ui, -apple-system, sans-serif;
+    --num-spacing: -0.015em;
+
+    --shadow: 0 2px 8px rgba(0,0,0,.35),
+              0 40px 90px rgba(0,0,0,.5),
+              0 0 0 1px rgba(255,255,255,0.04);
+    --ease:   cubic-bezier(.2, 0, 0, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0C0C10;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-family: 'Roboto', system-ui, -apple-system, sans-serif;
+  }
+
+  .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal; font-style: normal;
+    line-height: 1; letter-spacing: normal; text-transform: none;
+    display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    user-select: none;
+  }
+  .material-symbols-outlined.fill {
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+
+  /* ── Backdrop ─────────────────────────────────────────────────────────── */
+  .backdrop {
+    height: 100%; width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(130% 120% at 50% 18%, #1A1A22 0%, #0C0C10 62%);
+    position: relative; overflow: hidden;
+  }
+  .bloom {
+    position: absolute; width: 520px; height: 520px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(140,155,255,0.07), transparent 68%);
+    top: 50%; left: 50%; transform: translate(-50%, -58%);
+    pointer-events: none;
+  }
+  .helper {
+    position: absolute; bottom: 26px; left: 0; right: 0; text-align: center;
+    font-size: 12.5px; color: rgba(233, 232, 239, 0.30); letter-spacing: 0.02em;
+    pointer-events: none;
+  }
+
+  /* ── Floating window ──────────────────────────────────────────────────── */
+  .window {
+    width: 440px; height: 560px; border-radius: var(--win-radius);
+    background: var(--panel); overflow: hidden; position: relative;
+    box-shadow: var(--shadow);
+    transition: width .42s var(--ease), height .42s var(--ease), border-radius .42s var(--ease);
+  }
+  .window.compact {
+    width: 376px; height: 116px; border-radius: var(--win-radius-compact);
+  }
+
+  /* The two layouts live side by side; we toggle which is shown. */
+  .app {
+    width: 100%; height: 100%;
+    background: var(--panel); color: var(--text); outline: none;
+    display: flex; flex-direction: column; position: relative; overflow: hidden;
+  }
+  .window.compact .app.expanded { display: none; }
+  .window:not(.compact) .app.compact-view { display: none; }
+
+  /* completion accent wash (expanded) */
+  .wash {
+    position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(120% 90% at 50% 38%, var(--accent-soft) 0%, transparent 70%);
+    opacity: 0; transition: opacity .6s ease;
+  }
+  .app[data-mode="done"] .wash { opacity: 1; }
+
+  /* ── Chrome strip ─────────────────────────────────────────────────────── */
+  .chrome {
+    flex: 0 0 auto; height: 46px; display: flex; align-items: center;
+    padding: 0 22px; position: relative; z-index: 2;
+    -webkit-app-region: drag;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    opacity: 0.55; box-shadow: none;
+    transition: box-shadow .4s, opacity .3s;
+  }
+  .app[data-mode="running"] .dot,
+  .app[data-mode="done"] .dot { opacity: 1; }
+  .app[data-mode="running"] .dot { box-shadow: 0 0 0 4px var(--accent-soft); }
+  /* compact dot is always full opacity (prototype CompactTimer never dims it) */
+  .app.compact-view .dot { opacity: 1; }
+  .wordmark {
+    font-family: var(--num-font); font-size: 14px; letter-spacing: 0.04em;
+    font-weight: 500; color: var(--text-dim);
+  }
+  .chrome .spacer { flex: 1; }
+
+  /* icon button (chrome / expand) */
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px; border: none; cursor: pointer;
+    background: transparent; color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, color .15s;
+    -webkit-app-region: no-drag;
+  }
+  .icon-btn:hover { background: var(--surface2); color: var(--text); }
+  .icon-btn .material-symbols-outlined { font-size: 18px; }
+  /* compact expand glyph is 17px in the prototype (CompactTimer); expanded chrome stays 18px */
+  #expand-btn .material-symbols-outlined { font-size: 17px; }
+
+  /* ── Hero ─────────────────────────────────────────────────────────────── */
+  .hero {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; position: relative; z-index: 1;
+    padding: 0 30px;
+  }
+  .mode-label {
+    font-size: 12.5px; font-weight: 500; color: var(--text-dim);
+    letter-spacing: 0.04em; margin-bottom: 0; height: 16px;
+    transition: color .4s;
+  }
+  .app[data-mode="done"] .mode-label { color: var(--accent); }
+
+  .ring-wrap {
+    position: relative; width: 268px; height: 268px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ring {
+    position: absolute; inset: 0; transform: rotate(-90deg);
+  }
+  .ring .track { stroke: var(--outline); }
+  .ring .progress {
+    stroke: var(--accent); stroke-linecap: round;
+    opacity: 0; transition: stroke-dashoffset .25s linear, opacity .3s;
+  }
+  .app[data-mode="running"] .ring .progress,
+  .app[data-mode="paused"]  .ring .progress,
+  .app[data-mode="done"]    .ring .progress { opacity: 1; }
+
+  .ring-inner { position: relative; z-index: 1; }
+
+  /* big numerals */
+  .time-btn {
+    border: none; background: transparent; padding: 0;
+    cursor: text; color: var(--text);
+    display: flex; align-items: baseline;
+    font-family: var(--num-font); font-weight: 400; letter-spacing: var(--num-spacing);
+    font-variant-numeric: tabular-nums; line-height: 0.95;
+    font-size: 79px; /* 92 * 0.86 ≈ 79 (ring inset) */
+    transition: color .4s;
+  }
+  .app:not([data-mode="idle"]) .time-btn { cursor: default; }
+  .app[data-mode="done"] .time-btn { color: var(--accent); }
+  .time-btn .sep { opacity: 0.32; margin: 0 0.04em; }
+
+  .time-input {
+    width: 280px; text-align: center; background: transparent; border: none; outline: none;
+    color: var(--text); font-family: var(--num-font); font-weight: 400;
+    font-size: 84.64px; /* 92 * 0.92 — prototype input is intentionally larger than the 79px static numerals */
+    letter-spacing: var(--num-spacing); caret-color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Controls ─────────────────────────────────────────────────────────── */
+  .controls {
+    flex: 0 0 auto; padding: 0 30px 30px; position: relative; z-index: 1;
+  }
+  .preset-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .preset-row.small { gap: 8px; margin-bottom: 0; }
+
+  .preset-btn {
+    flex: 1 1 0; height: 46px; border-radius: 16px; border: none; cursor: pointer;
+    background: var(--surface2); color: var(--text);
+    font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    display: flex; align-items: center; justify-content: center; gap: 2px;
+    box-shadow: none;
+    transition: background .15s, color .15s, transform .12s, box-shadow .2s;
+  }
+  .preset-btn:hover {
+    background: var(--surface3); box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    transform: translateY(-1px);
+  }
+  .preset-btn .unit { font-size: 11px; opacity: 0.5; font-weight: 400; }
+  .preset-btn.small { height: 38px; font-size: 13px; }
+  .preset-btn.small .unit { font-size: 9px; }
+
+  .row { display: flex; gap: 10px; }
+  .row.gap-mb { margin-bottom: 10px; }
+
+  .primary-btn {
+    width: 100%; height: 52px; border-radius: 26px; border: none; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink);
+    font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: none; filter: none; transform: none;
+    transition: filter .15s, box-shadow .2s, transform .12s;
+  }
+  .primary-btn.flex { width: auto; flex: 1 1 auto; }
+  .primary-btn:hover {
+    filter: brightness(1.06); transform: translateY(-1px);
+    box-shadow: 0 6px 22px var(--accent-soft);
+  }
+  .primary-btn .material-symbols-outlined { font-size: 20px; }
+
+  .secondary-btn {
+    height: 52px; padding: 0 20px; border-radius: 26px; cursor: pointer;
+    border: 1px solid var(--outline); background: transparent; color: var(--text-dim);
+    font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    transition: background .15s, color .15s;
+  }
+  .secondary-btn:hover { background: var(--surface2); }
+  .secondary-btn .material-symbols-outlined { font-size: 19px; }
+
+  /* control-group visibility per mode */
+  .ctl-group { display: none; }
+  .app[data-mode="idle"]    .ctl-group.idle    { display: block; }
+  .app[data-mode="running"] .ctl-group.active  { display: block; }
+  .app[data-mode="paused"]  .ctl-group.active  { display: block; }
+  .app[data-mode="done"]    .ctl-group.done    { display: block; }
+
+  /* swap pause/resume + start labels per mode */
+  .app[data-mode="paused"] .lbl-running,
+  .app[data-mode="paused"] .ico-running { display: none; }
+  .app[data-mode="running"] .lbl-paused,
+  .app[data-mode="running"] .ico-paused { display: none; }
+
+  /* ── Compact view ─────────────────────────────────────────────────────── */
+  .app.compact-view { flex-direction: column; }
+  .compact-wash {
+    position: absolute; inset: 0; background: var(--accent-soft);
+    opacity: 0; transition: opacity .5s;
+  }
+  .app.compact-view[data-mode="done"] .compact-wash { opacity: 1; }
+  .compact-bar {
+    flex: 1; display: flex; align-items: center; gap: 14px;
+    padding: 0 16px 0 18px; position: relative; z-index: 1;
+  }
+  .compact-time {
+    font-family: var(--num-font); font-weight: 500; font-size: 34px;
+    letter-spacing: var(--num-spacing); font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .app.compact-view[data-mode="done"] .compact-time { color: var(--accent); }
+  .compact-bar .spacer { flex: 1; }
+  .compact-cluster { display: flex; gap: 6px; }
+
+  .mini-chip {
+    width: 34px; height: 34px; border-radius: 12px; border: none; cursor: pointer;
+    background: var(--surface2); color: var(--text);
+    font-family: 'Roboto', sans-serif; font-size: 13px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .mini-icon {
+    width: 38px; height: 38px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mini-icon .material-symbols-outlined { font-size: 20px; }
+  .mini-icon .material-symbols-outlined.sz19 { font-size: 19px; }
+
+  .compact-progress {
+    height: 3px; background: var(--outline); position: relative; z-index: 1;
+  }
+  .compact-progress .fill {
+    height: 100%; width: 0%; background: var(--accent);
+    transition: width .25s linear;
+  }
+
+  /* compact cluster visibility per mode */
+  .compact-cluster .cc-idle   { display: none; }
+  .compact-cluster .cc-active { display: none; }
+  .compact-cluster .cc-done   { display: none; }
+  .app.compact-view[data-mode="idle"]    .cc-idle   { display: inline-flex; }
+  .app.compact-view[data-mode="running"] .cc-active { display: inline-flex; }
+  .app.compact-view[data-mode="paused"]  .cc-active { display: inline-flex; }
+  .app.compact-view[data-mode="done"]    .cc-done   { display: inline-flex; }
+  .app.compact-view[data-mode="running"] .cc-mini .ico-running { display: inline-block; }
+  .app.compact-view[data-mode="running"] .cc-mini .ico-paused  { display: none; }
+  .app.compact-view[data-mode="paused"]  .cc-mini .ico-running { display: none; }
+  .app.compact-view[data-mode="paused"]  .cc-mini .ico-paused  { display: inline-block; }
+
+  /* ── Accessibility: visible focus rings for keyboard users ────────────── */
+  button:focus-visible,
+  .time-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+  /* The app container takes focus for the Space/Esc shortcuts, but — as in the
+     design — it never paints a window-wide ring (it's the default focus target,
+     not a control). Individual controls keep their focus-visible rings above. */
+  .app:focus { outline: none; }
+
+  /* ── Reduced motion ───────────────────────────────────────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+    .preset-btn:hover, .primary-btn:hover { transform: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="backdrop">
+  <div class="bloom"></div>
+
+  <div class="window" id="window">
+    <!-- ══ Expanded layout ══════════════════════════════════════════════ -->
+    <div class="app expanded" id="app" data-mode="idle" tabindex="0" aria-label="Span focus timer">
+      <div class="wash"></div>
+
+      <!-- chrome strip (Tauri drag region) -->
+      <div class="chrome" data-tauri-drag-region>
+        <div class="brand">
+          <span class="dot"></span>
+          <span class="wordmark">span</span>
+        </div>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="toggle-compact" title="Compact mode" aria-label="Compact mode">
+          <span class="material-symbols-outlined" aria-hidden="true">close_fullscreen</span>
+        </button>
+      </div>
+
+      <!-- hero -->
+      <div class="hero">
+        <div class="mode-label" id="mode-label" role="status" aria-live="polite" aria-atomic="true">Ready</div>
+
+        <div class="ring-wrap">
+          <svg class="ring" width="268" height="268" aria-hidden="true">
+            <circle class="track" cx="134" cy="134" r="131.5" fill="none" stroke-width="5"></circle>
+            <circle class="progress" id="ring-progress" cx="134" cy="134" r="131.5" fill="none" stroke-width="5"></circle>
+          </svg>
+          <div class="ring-inner">
+            <button class="time-btn" id="time-btn" title="Click to set a custom duration"
+                    aria-label="Set custom duration">
+              <span id="disp-mm">25</span><span class="sep">:</span><span id="disp-ss">00</span>
+            </button>
+            <input class="time-input" id="time-input" style="display:none"
+                   aria-label="Custom duration in minutes and seconds" />
+          </div>
+        </div>
+      </div>
+
+      <!-- controls -->
+      <div class="controls">
+        <!-- idle -->
+        <div class="ctl-group idle">
+          <div class="preset-row" id="preset-row"></div>
+          <button class="primary-btn" id="start-btn">
+            <span class="material-symbols-outlined fill" aria-hidden="true">play_arrow</span>
+            <span id="start-label">Start 25 min</span>
+          </button>
+        </div>
+
+        <!-- running / paused -->
+        <div class="ctl-group active">
+          <div class="row">
+            <button class="primary-btn flex" id="pauseresume-btn">
+              <span class="material-symbols-outlined fill ico-running" aria-hidden="true">pause</span>
+              <span class="material-symbols-outlined fill ico-paused" aria-hidden="true">play_arrow</span>
+              <span class="lbl-running">Pause</span>
+              <span class="lbl-paused">Resume</span>
+            </button>
+            <button class="secondary-btn" id="cancel-btn" aria-label="Cancel timer">
+              <span class="material-symbols-outlined" aria-hidden="true">stop</span>
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <!-- done -->
+        <div class="ctl-group done">
+          <div class="row gap-mb">
+            <button class="primary-btn flex" id="stopalarm-btn">
+              <span class="material-symbols-outlined" aria-hidden="true">notifications_off</span>
+              Stop alarm
+            </button>
+            <button class="secondary-btn" id="restart-btn" aria-label="Restart timer">
+              <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+              Restart
+            </button>
+          </div>
+          <div class="preset-row small" id="preset-row-done"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Compact layout ═══════════════════════════════════════════════ -->
+    <div class="app compact-view" id="app-compact" data-mode="idle" tabindex="0" aria-label="Span focus timer">
+      <div class="compact-wash"></div>
+      <div class="compact-bar" data-tauri-drag-region>
+        <span class="dot"></span>
+        <span class="compact-time" id="compact-time">25:00</span>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="expand-btn" title="Expand" aria-label="Expand">
+          <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
+        </button>
+        <div class="compact-cluster">
+          <span class="cc-idle" id="compact-presets"></span>
+          <button class="mini-icon cc-active cc-mini" id="compact-pauseresume" aria-label="Pause or resume">
+            <span class="material-symbols-outlined fill ico-running" aria-hidden="true">pause</span>
+            <span class="material-symbols-outlined fill ico-paused" aria-hidden="true">play_arrow</span>
+          </button>
+          <button class="mini-icon cc-done" id="compact-stopalarm" aria-label="Stop alarm">
+            <span class="material-symbols-outlined sz19" aria-hidden="true">notifications_off</span>
+          </button>
+        </div>
+      </div>
+      <div class="compact-progress"><div class="fill" id="compact-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="helper">
+    Space to start &middot; pause &nbsp;·&nbsp; Esc to cancel &nbsp;·&nbsp; click the time to set a custom duration
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  // ── Constants ──────────────────────────────────────────────────────────
+  const PRESETS = [5, 10, 15, 30];
+  const DEFAULT_TOTAL = 25 * 60;
+  const PERSIST_KEY = 'span.timer';
+  const COMPACT_KEY  = 'span.compact';
+  const RING_CIRC = 2 * Math.PI * 131.5; // r = (268 - 5) / 2
+
+  // ── Pure helpers ─────────────────────────────────────────────────────────
+  function fmt(totalSec) {
+    const s = Math.max(0, Math.ceil(totalSec));
+    const m = Math.floor(s / 60);
+    const ss = s % 60;
+    return {
+      m: String(m),
+      mm: String(m).padStart(2, '0'),
+      ss: String(ss).padStart(2, '0'),
+    };
+  }
+  // parse "MM:SS", "M:SS", or plain minutes ("15", "12.5")
+  function parseDuration(str) {
+    str = (str || '').trim();
+    if (!str) return null;
+    if (str.includes(':')) {
+      const [a, b] = str.split(':');
+      const m = parseInt(a, 10) || 0;
+      const s = parseInt(b, 10) || 0;
+      const tot = m * 60 + s;
+      return tot > 0 ? tot : null;
+    }
+    const mins = parseFloat(str);
+    if (!isFinite(mins) || mins <= 0) return null;
+    return Math.round(mins * 60);
+  }
+
+  // ── AlarmAdapter ─────────────────────────────────────────────────────────
+  // All completion side-effects live here so the Tauri port can swap one object.
+  const AlarmAdapter = (function () {
+    let ctx = null;
+    let intervalId = 0;
+
+    function getAudio() {
+      if (!ctx) {
+        try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { ctx = null; }
+      }
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    }
+
+    // soft two-note ping (659.25 & 987.77 Hz) with gentle exponential decay
+    function chime() {
+      const c = getAudio();
+      if (!c) return;
+      const now = c.currentTime;
+      const notes = [659.25, 987.77];
+      notes.forEach((f, i) => {
+        const o = c.createOscillator();
+        const g = c.createGain();
+        o.type = 'sine';
+        o.frequency.value = f;
+        const t = now + i * 0.16;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+        o.connect(g).connect(c.destination);
+        o.start(t);
+        o.stop(t + 1.4);
+      });
+    }
+
+    return {
+      // Unlock the audio context on the first user Start gesture.
+      unlock() { getAudio(); },
+      start() {
+        this.stop();
+        chime();
+        this.notify();
+        intervalId = setInterval(chime, 2600);
+      },
+      stop() {
+        if (intervalId) { clearInterval(intervalId); intervalId = 0; }
+      },
+      notify() {
+        // Future Tauri shell — swap for the notification plugin, e.g.:
+        //   import { sendNotification } from '@tauri-apps/plugin-notification';
+        //   sendNotification({ title: 'Span', body: "Time’s up" });
+        // (Web Notifications could go here too; left as a no-op for now.)
+      },
+    };
+  })();
+
+  // ── State machine engine ──────────────────────────────────────────────────
+  // modes: idle | running | paused | done
+  const Engine = {
+    total: DEFAULT_TOTAL,
+    remaining: DEFAULT_TOTAL,
+    mode: 'idle',
+    endTime: 0,
+    raf: 0,
+    fallback: 0,
+    editing: false,
+
+    persist() {
+      try {
+        localStorage.setItem(PERSIST_KEY, JSON.stringify({
+          total: this.total,
+          mode: this.mode,
+          endTime: this.endTime,
+          remaining: this.mode === 'running' ? null : this.remaining,
+        }));
+      } catch (e) {}
+    },
+
+    restore() {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(PERSIST_KEY) || 'null'); }
+      catch (e) { saved = null; }
+      if (!saved) return;
+
+      this.total = saved.total || DEFAULT_TOTAL;
+      this.mode = saved.mode || 'idle';
+      this.remaining = (saved.remaining != null) ? saved.remaining : this.total;
+
+      if (saved.mode === 'running' && saved.endTime) {
+        const left = (saved.endTime - Date.now()) / 1000;
+        if (left > 0) {
+          this.remaining = left;
+          this.endTime = saved.endTime;
+        } else {
+          // expired while away — reset to idle WITHOUT alarming
+          this.mode = 'idle';
+          this.remaining = this.total;
+          this.endTime = 0;
+        }
+      } else if (saved.mode === 'done') {
+        // a completed-but-not-dismissed session reopens as idle (no auto-alarm)
+        this.mode = 'idle';
+        this.remaining = this.total;
+      }
+    },
+
+    clearTimers() {
+      if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+      if (this.fallback) { clearTimeout(this.fallback); this.fallback = 0; }
+    },
+
+    loop() {
+      if (this.mode !== 'running') return;
+      this.clearTimers();
+      const tick = () => {
+        const left = (this.endTime - Date.now()) / 1000;
+        if (left <= 0) {
+          this.remaining = 0;
+          this.complete();
+          return;
+        }
+        this.remaining = left;
+        render();
+        this.raf = requestAnimationFrame(tick);
+      };
+      this.raf = requestAnimationFrame(tick);
+      // setTimeout fallback: fires completion even if rAF is throttled while hidden
+      const ms = Math.max(0, this.endTime - Date.now());
+      this.fallback = setTimeout(() => {
+        if (this.mode === 'running' && Date.now() >= this.endTime) {
+          this.remaining = 0;
+          this.complete();
+        }
+      }, ms + 60);
+    },
+
+    startWith(sec) {
+      // Always silence any active completion chime before starting a new session.
+      // Covers the done -> preset transition (the React prototype did this implicitly
+      // via the mode-keyed useEffect cleanup; the vanilla port must do it explicitly).
+      AlarmAdapter.stop();
+      AlarmAdapter.unlock();
+      this.total = sec;
+      this.remaining = sec;
+      this.endTime = Date.now() + sec * 1000;
+      this.mode = 'running';
+      this.editing = false;
+      this.loop();
+      this.persist();
+      render();
+    },
+    start() { this.startWith(this.total); },
+    pause() {
+      this.clearTimers();
+      this.remaining = Math.max(0, (this.endTime - Date.now()) / 1000);
+      this.mode = 'paused';
+      this.persist();
+      render();
+    },
+    resume() {
+      this.endTime = Date.now() + this.remaining * 1000;
+      this.mode = 'running';
+      this.loop();
+      this.persist();
+      render();
+    },
+    cancel() {
+      this.clearTimers();
+      AlarmAdapter.stop();
+      this.remaining = this.total;
+      this.endTime = 0;
+      this.mode = 'idle';
+      this.persist();
+      render();
+    },
+    complete() {
+      this.clearTimers();
+      this.mode = 'done';
+      AlarmAdapter.start();
+      this.persist();
+      render();
+    },
+    restart() {
+      AlarmAdapter.stop();
+      this.startWith(this.total);
+    },
+    stopSound() {
+      AlarmAdapter.stop();
+      this.clearTimers();
+      this.mode = 'idle';
+      this.remaining = this.total;
+      this.endTime = 0;
+      this.persist();
+      render();
+    },
+  };
+
+  // ── DOM refs ───────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const win        = $('window');
+  const app        = $('app');
+  const appCompact = $('app-compact');
+  const modeLabel  = $('mode-label');
+  const ringProg   = $('ring-progress');
+  const dispMM     = $('disp-mm');
+  const dispSS     = $('disp-ss');
+  const timeBtn    = $('time-btn');
+  const timeInput  = $('time-input');
+  const startLabel = $('start-label');
+  const presetRow  = $('preset-row');
+  const presetRowDone = $('preset-row-done');
+  const compactTime = $('compact-time');
+  const compactFill = $('compact-fill');
+  const compactPresets = $('compact-presets');
+
+  // init ring dash
+  ringProg.setAttribute('stroke-dasharray', RING_CIRC);
+  ringProg.setAttribute('stroke-dashoffset', RING_CIRC);
+
+  // ── Build preset buttons ──────────────────────────────────────────────
+  function presetButton(p, small) {
+    const b = document.createElement('button');
+    b.className = 'preset-btn' + (small ? ' small' : '');
+    b.innerHTML = p + '<span class="unit">m</span>';
+    b.addEventListener('click', () => Engine.startWith(p * 60));
+    return b;
+  }
+  PRESETS.forEach((p) => {
+    presetRow.appendChild(presetButton(p, false));
+    presetRowDone.appendChild(presetButton(p, true));
+  });
+  // compact: three mini chips (5/10/15)
+  PRESETS.slice(0, 3).forEach((p) => {
+    const b = document.createElement('button');
+    b.className = 'mini-chip';
+    b.textContent = String(p);
+    b.addEventListener('click', () => Engine.startWith(p * 60));
+    compactPresets.appendChild(b);
+  });
+
+  // ── Render (single explicit state-machine view fn) ──────────────────────
+  const MODE_LABELS = { idle: 'Ready', running: 'Focusing', paused: 'Paused', done: 'Time’s up' };
+
+  function render() {
+    const mode = Engine.mode;
+    const disp = fmt(Engine.remaining);
+    const frac = Engine.total > 0
+      ? Math.max(0, Math.min(1, Engine.remaining / Engine.total))
+      : 0;
+
+    // mode attribute drives all CSS state styling
+    app.setAttribute('data-mode', mode);
+    appCompact.setAttribute('data-mode', mode);
+
+    modeLabel.textContent = MODE_LABELS[mode];
+
+    // numerals (skip the big display while editing)
+    if (!Engine.editing) {
+      dispMM.textContent = disp.mm;
+      dispSS.textContent = disp.ss;
+    }
+    compactTime.textContent = disp.mm + ':' + disp.ss;
+
+    // start label (idle)
+    startLabel.textContent = 'Start ' + fmt(Engine.total).m + ' min';
+
+    // ring progress
+    const active = (mode === 'running' || mode === 'paused' || mode === 'done');
+    ringProg.setAttribute('stroke-dashoffset',
+      active ? RING_CIRC * (1 - frac) : RING_CIRC);
+
+    // compact baseline progress
+    const showBar = (mode === 'running' || mode === 'paused');
+    compactFill.style.width = (showBar ? frac * 100 : 0) + '%';
+  }
+
+  // ── Custom-duration inline editing ───────────────────────────────────────
+  function beginEdit() {
+    if (Engine.mode !== 'idle') return;
+    Engine.editing = true;
+    const f = fmt(Engine.total);
+    timeInput.value = f.mm + ':' + f.ss;
+    timeBtn.style.display = 'none';
+    timeInput.style.display = '';
+    timeInput.focus();
+    timeInput.select();
+  }
+  function endEdit() {
+    Engine.editing = false;
+    timeInput.style.display = 'none';
+    timeBtn.style.display = '';
+    render();
+  }
+  function commitEdit() {
+    const sec = parseDuration(timeInput.value);
+    if (sec) { Engine.total = sec; Engine.remaining = sec; Engine.persist(); }
+    endEdit();
+  }
+  timeBtn.addEventListener('click', beginEdit);
+  timeInput.addEventListener('blur', () => { if (Engine.editing) commitEdit(); });
+  timeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); endEdit(); }
+  });
+
+  // ── Control wiring ───────────────────────────────────────────────────────
+  $('start-btn').addEventListener('click', () => Engine.start());
+  $('pauseresume-btn').addEventListener('click', () =>
+    Engine.mode === 'running' ? Engine.pause() : Engine.resume());
+  $('cancel-btn').addEventListener('click', () => Engine.cancel());
+  $('stopalarm-btn').addEventListener('click', () => Engine.stopSound());
+  $('restart-btn').addEventListener('click', () => Engine.restart());
+  $('compact-pauseresume').addEventListener('click', () =>
+    Engine.mode === 'running' ? Engine.pause() : Engine.resume());
+  $('compact-stopalarm').addEventListener('click', () => Engine.stopSound());
+
+  // ── Compact toggle (persisted) ───────────────────────────────────────────
+  function setCompact(on) {
+    win.classList.toggle('compact', on);
+    try { localStorage.setItem(COMPACT_KEY, on ? '1' : '0'); } catch (e) {}
+    // Move focus to the now-visible layout so keyboard shortcuts keep working.
+    (on ? appCompact : app).focus();
+  }
+  $('toggle-compact').addEventListener('click', () => setCompact(true));
+  $('expand-btn').addEventListener('click', () => setCompact(false));
+
+  // ── Keyboard ─────────────────────────────────────────────────────────────
+  // Wired on both layouts so shortcuts work whether expanded or compact is visible.
+  function handleKeydown(e) {
+    if (Engine.editing) return;
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (Engine.mode === 'idle') Engine.start();
+      else if (Engine.mode === 'running') Engine.pause();
+      else if (Engine.mode === 'paused') Engine.resume();
+      else if (Engine.mode === 'done') Engine.stopSound();
+    } else if (e.key === 'Escape') {
+      if (Engine.mode === 'running' || Engine.mode === 'paused') Engine.cancel();
+      else if (Engine.mode === 'done') Engine.stopSound();
+    }
+  }
+  app.addEventListener('keydown', handleKeydown);
+  appCompact.addEventListener('keydown', handleKeydown);
+
+  // ── Boot ───────────────────────────────────────────────────────────────
+  Engine.restore();
+  // restore compact preference
+  let compactPref = false;
+  try { compactPref = localStorage.getItem(COMPACT_KEY) === '1'; } catch (e) {}
+  win.classList.toggle('compact', compactPref);
+
+  if (Engine.mode === 'running') Engine.loop();
+  render();
+  // Focus the visible layout so keyboard shortcuts work from boot in either mode.
+  (compactPref ? appCompact : app).focus();
+})();
+</script>
+</body>
+</html>

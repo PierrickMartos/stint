@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stint — Focus Timer</title>
+
+  <!-- Detect the Tauri shell before first paint: html.in-tauri makes the
+       native window the floating panel (no backdrop flash on launch). -->
+  <script>
+    if ('__TAURI_INTERNALS__' in window) document.documentElement.classList.add('in-tauri');
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600&display=swap" />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
+</head>
+<body>
+
+<div class="backdrop">
+  <div class="bloom"></div>
+
+  <div class="window" id="window">
+    <!-- ══ Expanded layout ══════════════════════════════════════════════ -->
+    <div class="app expanded" id="app" data-mode="idle" tabindex="0" aria-label="Stint focus timer">
+      <div class="wash"></div>
+
+      <!-- chrome strip (Tauri drag region) -->
+      <div class="chrome" data-tauri-drag-region>
+        <div class="brand">
+          <span class="wordmark">Stint</span>
+        </div>
+        <div class="spacer" data-tauri-drag-region></div>
+        <button class="icon-btn" id="toggle-compact" title="Compact mode" aria-label="Compact mode">
+          <span class="material-symbols-outlined" aria-hidden="true">close_fullscreen</span>
+        </button>
+      </div>
+
+      <!-- hero -->
+      <div class="hero">
+        <div class="mode-label" id="mode-label" role="status" aria-live="polite" aria-atomic="true">Ready</div>
+
+        <div class="ring-wrap">
+          <svg class="ring" width="268" height="268" aria-hidden="true">
+            <circle class="track" cx="134" cy="134" r="131.5" fill="none" stroke-width="5"></circle>
+            <circle class="progress" id="ring-progress" cx="134" cy="134" r="131.5" fill="none" stroke-width="5"></circle>
+          </svg>
+          <div class="ring-inner">
+            <button class="time-btn" id="time-btn" title="Click to set a custom duration"
+                    aria-label="Set custom duration">
+              <span id="disp-mm">25</span><span class="sep">:</span><span id="disp-ss">00</span>
+            </button>
+            <input class="time-input" id="time-input" style="display:none"
+                   aria-label="Custom duration in minutes and seconds" />
+          </div>
+        </div>
+      </div>
+
+      <!-- controls -->
+      <div class="controls">
+        <!-- idle -->
+        <div class="ctl-group idle">
+          <div class="preset-row" id="preset-row"></div>
+          <button class="primary-btn" id="start-btn">
+            <span class="material-symbols-outlined fill" aria-hidden="true">play_arrow</span>
+            <span id="start-label">Start 25 min</span>
+          </button>
+        </div>
+
+        <!-- running / paused -->
+        <div class="ctl-group active">
+          <div class="row">
+            <button class="primary-btn flex" id="pauseresume-btn">
+              <span class="material-symbols-outlined fill ico-running" aria-hidden="true">pause</span>
+              <span class="material-symbols-outlined fill ico-paused" aria-hidden="true">play_arrow</span>
+              <span class="lbl-running">Pause</span>
+              <span class="lbl-paused">Resume</span>
+            </button>
+            <button class="secondary-btn" id="cancel-btn" aria-label="Cancel timer">
+              <span class="material-symbols-outlined" aria-hidden="true">stop</span>
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <!-- done -->
+        <div class="ctl-group done">
+          <div class="row gap-mb">
+            <button class="primary-btn flex" id="stopalarm-btn">
+              <span class="material-symbols-outlined" aria-hidden="true">notifications_off</span>
+              Stop alarm
+            </button>
+            <button class="secondary-btn" id="restart-btn" aria-label="Restart timer">
+              <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+              Restart
+            </button>
+          </div>
+          <div class="preset-row small" id="preset-row-done"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Compact layout ═══════════════════════════════════════════════ -->
+    <div class="app compact-view" id="app-compact" data-mode="idle" tabindex="0" aria-label="Stint focus timer">
+      <div class="compact-wash"></div>
+      <div class="compact-bar" data-tauri-drag-region>
+        <span class="dot"></span>
+        <span class="compact-time" id="compact-time">25:00</span>
+        <div class="spacer" data-tauri-drag-region></div>
+        <button class="icon-btn" id="expand-btn" title="Expand" aria-label="Expand">
+          <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
+        </button>
+        <div class="compact-cluster">
+          <span class="cc-idle" id="compact-presets"></span>
+          <button class="mini-icon cc-active cc-mini" id="compact-pauseresume" aria-label="Pause or resume">
+            <span class="material-symbols-outlined fill ico-running" aria-hidden="true">pause</span>
+            <span class="material-symbols-outlined fill ico-paused" aria-hidden="true">play_arrow</span>
+          </button>
+          <button class="mini-icon cc-done" id="compact-stopalarm" aria-label="Stop alarm">
+            <span class="material-symbols-outlined sz19" aria-hidden="true">notifications_off</span>
+          </button>
+        </div>
+      </div>
+      <div class="compact-progress"><div class="fill" id="compact-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="helper">
+    Space to start &middot; pause &nbsp;·&nbsp; Esc to cancel &nbsp;·&nbsp; click the time to set a custom duration
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
