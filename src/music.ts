@@ -89,6 +89,10 @@ let retryArmed = false;
 let source: MusicSource = { kind: 'bundled' };
 let spotifyFallback = false; // Spotify play failed → bundled audio this session
 let streamFailed = false; // stream URL failed to load → bundled until source changes
+// Bumped whenever the spotify intent changes (setSource/start/resume) so a
+// stale async spotifyControl result can't trigger the fallback over a newer
+// source or session — only the latest call's .then may act.
+let spotifyGen = 0;
 
 /** True while lifecycle calls should go to the Spotify app, not <audio>. */
 function useSpotify(): boolean {
@@ -165,6 +169,7 @@ export const MusicAdapter: MusicPort = {
   },
   setSource(raw: string) {
     // Silence the old source, then (if a session is active) start the new one.
+    spotifyGen++; // orphan any in-flight spotify result for the old source
     if (useSpotify()) void spotifyControl('pause');
     disposeAudio();
     source = parseMusicSource(raw);
@@ -177,9 +182,9 @@ export const MusicAdapter: MusicPort = {
     if (!enabled) return;
     if (source.kind === 'spotify') {
       spotifyFallback = false; // retry Spotify each session
-      const uri = source.uri;
-      void spotifyControl('play', uri).then((ok) => {
-        if (ok || !shouldPlay || !enabled) return;
+      const gen = ++spotifyGen;
+      void spotifyControl('play', source.uri).then((ok) => {
+        if (ok || gen !== spotifyGen || !shouldPlay || !enabled) return;
         spotifyFallback = true; // Spotify unavailable — bundled for this session
         startAudio();
       });
@@ -199,9 +204,10 @@ export const MusicAdapter: MusicPort = {
     shouldPlay = true;
     if (!enabled) return;
     if (useSpotify()) {
+      const gen = ++spotifyGen;
       void spotifyControl('resume').then((ok) => {
-        if (ok || !shouldPlay || !enabled) return;
-        spotifyFallback = true; // Spotify quit mid-session — bundled instead
+        if (ok || gen !== spotifyGen || !shouldPlay || !enabled) return;
+        spotifyFallback = true; // Spotify gone mid-session — audio takes over
         play();
       });
       return;
