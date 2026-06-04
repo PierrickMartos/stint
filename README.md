@@ -18,6 +18,8 @@
 |  |  |
 |---|---|
 | **One-click start** | Presets for 5 / 10 / 15 / 30 minutes start the countdown immediately. Click the big numerals to type any custom duration (`12:30`, `7`, `12.5`). |
+| **Focus music** | A bundled lo-fi track ("Morning Coffee" by [HoliznaCC0](https://freemusicarchive.org/music/holiznacc0/lo-fi-and-chill), CC0 / public domain) loops softly while you focus. On by default — switch it off from the ⚙ settings panel. |
+| **Your default stint** | Pin a preset in settings and `Space` always starts it — or leave it on "Last used". |
 | **The countdown is the hero** | A large tabular display with a depleting progress ring. Distinct, calm states for ready / focusing / paused / time's up. |
 | **Gentle alarm + native notification** | A soft two-note chime repeats until dismissed, paired with a macOS notification — you won't miss the end, and it won't startle you. |
 | **Compact mode** | Collapse the window to a slim 376×116 glanceable bar that floats anywhere on your desktop, with the essentials one click away. |

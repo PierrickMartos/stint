@@ -12,6 +12,7 @@
  * timer that expired while away resets to idle WITHOUT alarming.
  */
 import type { AlarmPort } from './alarm';
+import type { MusicPort } from './music';
 
 export type Mode = 'idle' | 'running' | 'paused' | 'done';
 
@@ -37,6 +38,7 @@ export class TimerEngine {
 
   constructor(
     private alarm: AlarmPort,
+    private music: MusicPort,
     private onChange: () => void,
   ) {}
 
@@ -84,7 +86,12 @@ export class TimerEngine {
       this.remaining = this.total;
     }
 
-    if (this.mode === 'running') this.loop();
+    if (this.mode === 'running') {
+      this.loop();
+      // Resuming a still-running session on relaunch brings the music back;
+      // the adapter handles autoplay-policy rejection internally.
+      this.music.start();
+    }
   }
 
   private clearTimers(): void {
@@ -128,6 +135,7 @@ export class TimerEngine {
     // (covers starting a preset straight from the ringing done state).
     this.alarm.stop();
     this.alarm.unlock();
+    this.music.start();
     this.total = sec;
     this.remaining = sec;
     this.endTime = Date.now() + sec * 1000;
@@ -144,6 +152,7 @@ export class TimerEngine {
 
   pause(): void {
     this.clearTimers();
+    this.music.pause();
     this.remaining = Math.max(0, (this.endTime - Date.now()) / 1000);
     this.mode = 'paused';
     this.persist();
@@ -151,6 +160,7 @@ export class TimerEngine {
   }
 
   resume(): void {
+    this.music.resume();
     this.endTime = Date.now() + this.remaining * 1000;
     this.mode = 'running';
     this.loop();
@@ -161,6 +171,7 @@ export class TimerEngine {
   cancel(): void {
     this.clearTimers();
     this.alarm.stop();
+    this.music.stop();
     this.remaining = this.total;
     this.endTime = 0;
     this.mode = 'idle';
@@ -171,6 +182,8 @@ export class TimerEngine {
   private complete(): void {
     this.clearTimers();
     this.mode = 'done';
+    // Music out before the chime comes in.
+    this.music.stop();
     this.alarm.start();
     this.persist();
     this.onChange();
@@ -183,6 +196,7 @@ export class TimerEngine {
 
   stopSound(): void {
     this.alarm.stop();
+    this.music.stop();
     this.clearTimers();
     this.mode = 'idle';
     this.remaining = this.total;

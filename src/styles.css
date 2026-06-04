@@ -158,7 +158,69 @@ html.in-tauri .window {
 .icon-btn:hover { background: var(--surface2); color: var(--text); }
 .icon-btn .material-symbols-outlined { font-size: 18px; }
 /* compact expand glyph is 17px in the prototype (CompactTimer); expanded chrome stays 18px */
-#expand-btn .material-symbols-outlined { font-size: 17px; }
+#expand-btn .material-symbols-outlined,
+#mute-btn-compact .material-symbols-outlined { font-size: 17px; }
+
+/* ── Settings panel (gear → overlay below the chrome strip) ─────────────── */
+.settings-panel {
+  position: absolute; top: 50px; right: 16px; z-index: 3;
+  width: 300px; padding: 16px;
+  background: var(--surface2); border: 1px solid var(--outline);
+  border-radius: 16px; box-shadow: var(--shadow);
+  display: none; flex-direction: column; gap: 14px;
+}
+.app.settings-open .settings-panel { display: flex; }
+.app.settings-open #toggle-settings { background: var(--surface2); color: var(--text); }
+
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.settings-row.column { flex-direction: column; align-items: stretch; gap: 8px; }
+.settings-label {
+  font-size: 12.5px; font-weight: 500; color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* toggle switch */
+.switch {
+  position: relative; width: 36px; height: 20px; flex: 0 0 auto;
+  border: none; border-radius: 10px; cursor: pointer;
+  background: var(--surface3); transition: background 0.2s;
+}
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--text-dim); transition: transform 0.2s var(--ease), background 0.2s;
+}
+.switch.on { background: var(--accent); }
+.switch.on::after { transform: translateX(16px); background: var(--accent-ink); }
+
+/* volume slider */
+.volume-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 140px; height: 4px; flex: 0 0 auto;
+  border-radius: 2px; background: var(--surface3);
+  accent-color: var(--accent); cursor: pointer; outline: none;
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: none;
+  transition: transform 0.12s var(--ease);
+}
+.volume-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.volume-slider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: none;
+}
+
+/* default-preset chips: settings panel buttons sit on the panel surface */
+.settings-panel .preset-btn { background: var(--surface3); }
+.settings-panel .preset-btn:hover { background: var(--panel); }
+.settings-panel .preset-btn.selected {
+  background: var(--accent); color: var(--accent-ink);
+}
+#settings-preset-last { flex: 1.6 1 0; font-size: 12px; }
 
 /* ── Hero ────────────────────────────────────────────────────────────────── */
 .hero {

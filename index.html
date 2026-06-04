@@ -34,9 +34,37 @@
           <span class="wordmark">Stint</span>
         </div>
         <div class="spacer" data-tauri-drag-region></div>
+        <button class="icon-btn" id="mute-btn" title="Mute focus music" aria-label="Mute focus music"
+                aria-pressed="false">
+          <span class="material-symbols-outlined" aria-hidden="true">music_note</span>
+        </button>
+        <button class="icon-btn" id="toggle-settings" title="Settings" aria-label="Settings"
+                aria-expanded="false" aria-controls="settings-panel">
+          <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+        </button>
         <button class="icon-btn" id="toggle-compact" title="Compact mode" aria-label="Compact mode">
           <span class="material-symbols-outlined" aria-hidden="true">close_fullscreen</span>
         </button>
+      </div>
+
+      <!-- settings panel (toggled by the gear; closes on Esc / outside click) -->
+      <div class="settings-panel" id="settings-panel" role="dialog" aria-label="Settings">
+        <div class="settings-row">
+          <span class="settings-label">Focus music</span>
+          <button class="switch" id="music-toggle" role="switch" aria-checked="true"
+                  aria-label="Focus music"></button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Volume</span>
+          <input class="volume-slider" id="music-volume" type="range" min="0" max="100"
+                 aria-label="Focus music volume" />
+        </div>
+        <div class="settings-row column">
+          <span class="settings-label">Space starts</span>
+          <div class="preset-row small" id="settings-preset-row">
+            <button class="preset-btn small" id="settings-preset-last">Last used</button>
+          </div>
+        </div>
       </div>
 
       <!-- hero -->
@@ -80,7 +108,7 @@
               <span class="lbl-paused">Resume</span>
             </button>
             <button class="secondary-btn" id="cancel-btn" aria-label="Cancel timer">
-              <span class="material-symbols-outlined" aria-hidden="true">stop</span>
+              <span class="material-symbols-outlined fill" aria-hidden="true">stop</span>
               Cancel
             </button>
           </div>
@@ -110,6 +138,10 @@
         <span class="dot"></span>
         <span class="compact-time" id="compact-time">25:00</span>
         <div class="spacer" data-tauri-drag-region></div>
+        <button class="icon-btn" id="mute-btn-compact" title="Mute focus music"
+                aria-label="Mute focus music" aria-pressed="false">
+          <span class="material-symbols-outlined" aria-hidden="true">music_note</span>
+        </button>
         <button class="icon-btn" id="expand-btn" title="Expand" aria-label="Expand">
           <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
         </button>

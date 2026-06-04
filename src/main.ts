@@ -8,6 +8,8 @@ import './styles.css';
 import { fmt, parseDuration } from './format';
 import { TimerEngine } from './engine';
 import { AlarmAdapter } from './alarm';
+import { MusicAdapter } from './music';
+import { loadSettings, saveSettings } from './settings';
 import { isTauri, resizeWindow, wireDragRegions } from './shell';
 
 const PRESETS = [5, 10, 15, 30];
@@ -80,7 +82,11 @@ function render(): void {
   compactFill.style.width = `${showBar ? frac * 100 : 0}%`;
 }
 
-const engine = new TimerEngine(AlarmAdapter, render);
+const settings = loadSettings();
+MusicAdapter.setEnabled(settings.music);
+MusicAdapter.setVolume(settings.volume);
+
+const engine = new TimerEngine(AlarmAdapter, MusicAdapter, render);
 
 // ── Build preset buttons ─────────────────────────────────────────────────────
 function presetButton(p: number, small: boolean): HTMLButtonElement {
@@ -152,6 +158,83 @@ $('compact-pauseresume').addEventListener('click', () =>
 );
 $('compact-stopalarm').addEventListener('click', () => engine.stopSound());
 
+// ── Settings panel (gear → overlay; music opt-out + Space default preset) ───
+const settingsBtn = $('toggle-settings');
+const musicToggle = $('music-toggle');
+const muteBtns = [$('mute-btn'), $('mute-btn-compact')];
+const volumeSlider = $<HTMLInputElement>('music-volume');
+const settingsPresetRow = $('settings-preset-row');
+const settingsPresetLast = $('settings-preset-last');
+
+let settingsOpen = false;
+
+function renderSettings(): void {
+  musicToggle.classList.toggle('on', settings.music);
+  musicToggle.setAttribute('aria-checked', String(settings.music));
+  muteBtns.forEach((b) => {
+    b.querySelector('.material-symbols-outlined')!.textContent = settings.music
+      ? 'music_note'
+      : 'music_off';
+    b.setAttribute('aria-pressed', String(!settings.music));
+    b.title = settings.music ? 'Mute focus music' : 'Unmute focus music';
+  });
+  volumeSlider.value = String(Math.round(settings.volume * 100));
+  settingsPresetLast.classList.toggle('selected', settings.defaultPresetMin == null);
+  presetChips.forEach(([min, btn]) =>
+    btn.classList.toggle('selected', settings.defaultPresetMin === min),
+  );
+}
+
+function setSettingsOpen(on: boolean): void {
+  settingsOpen = on;
+  app.classList.toggle('settings-open', on);
+  settingsBtn.setAttribute('aria-expanded', String(on));
+  // Refocus the app container on close so Space/Esc shortcuts keep working.
+  if (!on) app.focus();
+}
+
+settingsBtn.addEventListener('click', () => setSettingsOpen(!settingsOpen));
+
+// Outside click closes the panel (capture so it wins over other handlers).
+document.addEventListener('mousedown', (e) => {
+  if (!settingsOpen) return;
+  const t = e.target as Element;
+  if (t.closest('#settings-panel') || t.closest('#toggle-settings')) return;
+  setSettingsOpen(false);
+});
+
+// The panel switch and the chrome mute button are two views of the same flag.
+function toggleMusic(): void {
+  settings.music = !settings.music;
+  saveSettings(settings);
+  MusicAdapter.setEnabled(settings.music);
+  renderSettings();
+}
+musicToggle.addEventListener('click', toggleMusic);
+muteBtns.forEach((b) => b.addEventListener('click', toggleMusic));
+
+volumeSlider.addEventListener('input', () => {
+  settings.volume = Number(volumeSlider.value) / 100;
+  saveSettings(settings);
+  MusicAdapter.setVolume(settings.volume);
+});
+
+function selectDefaultPreset(min: number | null): void {
+  settings.defaultPresetMin = min;
+  saveSettings(settings);
+  renderSettings();
+}
+settingsPresetLast.addEventListener('click', () => selectDefaultPreset(null));
+const presetChips: Array<[number, HTMLButtonElement]> = PRESETS.map((p) => {
+  const b = document.createElement('button');
+  b.className = 'preset-btn small';
+  b.innerHTML = `${p}<span class="unit">m</span>`;
+  b.addEventListener('click', () => selectDefaultPreset(p));
+  settingsPresetRow.appendChild(b);
+  return [p, b];
+});
+renderSettings();
+
 // ── Compact toggle (persisted; resizes the native window in Tauri) ──────────
 function setCompact(on: boolean): void {
   win.classList.toggle('compact', on);
@@ -164,17 +247,32 @@ function setCompact(on: boolean): void {
   // Move focus to the now-visible layout so keyboard shortcuts keep working.
   (on ? appCompact : app).focus();
 }
-$('toggle-compact').addEventListener('click', () => setCompact(true));
+$('toggle-compact').addEventListener('click', () => {
+  if (settingsOpen) setSettingsOpen(false); // panel lives in the expanded layout
+  setCompact(true);
+});
 $('expand-btn').addEventListener('click', () => setCompact(false));
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────
 // Wired on both layouts so shortcuts work whether expanded or compact is visible.
 function handleKeydown(e: KeyboardEvent): void {
   if (engine.editing) return;
+  if (settingsOpen) {
+    // Panel owns the keyboard: Esc closes it (without cancelling the timer),
+    // Space stays free to activate the focused control.
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setSettingsOpen(false);
+    }
+    return;
+  }
   if (e.key === ' ' || e.code === 'Space') {
     e.preventDefault();
-    if (engine.mode === 'idle') engine.start();
-    else if (engine.mode === 'running') engine.pause();
+    if (engine.mode === 'idle') {
+      settings.defaultPresetMin != null
+        ? engine.startWith(settings.defaultPresetMin * 60)
+        : engine.start();
+    } else if (engine.mode === 'running') engine.pause();
     else if (engine.mode === 'paused') engine.resume();
     else if (engine.mode === 'done') engine.stopSound();
   } else if (e.key === 'Escape') {
