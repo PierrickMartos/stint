@@ -6,6 +6,7 @@
  * resizes the real window (440×560 ⇄ 376×116) and `html.in-tauri` collapses
  * the browser-only backdrop presentation (see styles.css).
  */
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 
 export const isTauri = '__TAURI_INTERNALS__' in window;
@@ -35,4 +36,22 @@ export function wireDragRegions(): void {
     e.preventDefault();
     void getCurrentWindow().startDragging();
   });
+}
+
+/**
+ * Drive the local Spotify desktop app (macOS only) via the `spotify_control`
+ * Rust command. Resolves false outside Tauri or on any command error so
+ * music.ts can fall back to the bundled track.
+ */
+export async function spotifyControl(
+  action: 'play' | 'pause' | 'resume',
+  uri?: string,
+): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    await invoke('spotify_control', { action, uri });
+    return true;
+  } catch {
+    return false;
+  }
 }
