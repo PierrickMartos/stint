@@ -3,7 +3,7 @@
  * app never touches audio or notification APIs directly.
  *
  * Sound: a soft two-note WebAudio chime (659.25 & 987.77 Hz) with gentle
- * exponential decay, repeating every 2.6s until dismissed.
+ * exponential decay, repeating every 2.6s until dismissed or 10s elapse.
  *
  * Notification: native via @tauri-apps/plugin-notification when running in
  * the Tauri shell; a no-op in the browser preview.
@@ -26,9 +26,11 @@ export interface AlarmPort {
 
 const CHIME_NOTES_HZ = [659.25, 987.77];
 const CHIME_REPEAT_MS = 2600;
+const AUTO_STOP_MS = 10_000;
 
 let ctx: AudioContext | null = null;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let autoStopId: ReturnType<typeof setTimeout> | null = null;
 
 function getAudio(): AudioContext | null {
   if (!ctx) {
@@ -85,11 +87,16 @@ export const AlarmAdapter: AlarmPort = {
     chime();
     void notify();
     intervalId = setInterval(chime, CHIME_REPEAT_MS);
+    autoStopId = setTimeout(() => this.stop(), AUTO_STOP_MS);
   },
   stop() {
     if (intervalId !== null) {
       clearInterval(intervalId);
       intervalId = null;
+    }
+    if (autoStopId !== null) {
+      clearTimeout(autoStopId);
+      autoStopId = null;
     }
   },
 };
