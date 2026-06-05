@@ -1,0 +1,27 @@
+# CI: type-check, build, and run the functional test suite on every push/PR.
+# No Rust toolchain needed — the Tauri side only builds in release.yml.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Functional tests
+        run: npm test
