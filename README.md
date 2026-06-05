@@ -19,6 +19,7 @@
 |---|---|
 | **One-click start** | Presets for 5 / 10 / 15 / 30 minutes start the countdown immediately. Click the big numerals to type any custom duration (`12:30`, `7`, `12.5`). |
 | **Focus music** | A bundled lo-fi track ("Morning Coffee" by [HoliznaCC0](https://freemusicarchive.org/music/holiznacc0/lo-fi-and-chill), CC0 / public domain) loops softly while you focus. On by default — adjust the volume in the ⚙ settings panel, or mute it with one click from either layout's ♪ button. |
+| **Bring your own music** | Paste a direct audio URL or a Spotify song/playlist link in the ⚙ settings panel. Audio URLs stream in-app; Spotify links drive the local Spotify desktop app (macOS) — the timer starts, pauses, and stops your playlist for you. If anything's unreachable, the bundled track takes over — never silence. |
 | **Your default stint** | Pin a preset in settings and `Space` always starts it — or leave it on "Last used". |
 | **The countdown is the hero** | A large tabular display with a depleting progress ring. Distinct, calm states for ready / focusing / paused / time's up. |
 | **Gentle alarm + native notification** | A soft two-note chime repeats until dismissed, paired with a macOS notification — you won't miss the end, and it won't startle you. |
@@ -109,8 +110,8 @@ git tag v0.1.0 && git push origin v0.1.0
 
 - `src/engine.ts` — timestamp-based countdown state machine + persistence
 - `src/alarm.ts` — chime + native notification behind one adapter
-- `src/music.ts` — looping focus-music playback behind one adapter (volume, mute, autoplay-retry)
-- `src/settings.ts` — typed load/save of user preferences (music, volume, default preset)
+- `src/music.ts` — focus-music playback behind one adapter (bundled track, custom audio URL, or local Spotify control; volume, mute, autoplay-retry, fallback)
+- `src/settings.ts` — typed load/save of user preferences (music, volume, music source, default preset)
 - `src/shell.ts` — Tauri window integration (resize, drag, environment detection)
 - `src/main.ts` — DOM wiring, settings panel, and the single render function
 - `src/assets/focus-music.m4a` — "Morning Coffee" by HoliznaCC0 (CC0 1.0), re-encoded to 128 kbps AAC
