@@ -16,12 +16,33 @@ vi.mock('@tauri-apps/plugin-notification', () => ({
 let oscillatorsCreated = 0;
 const chimesPlayed = () => oscillatorsCreated / 2;
 
+// Per-test knobs for modelling a context WebKit has killed mid-session.
+let initialState = 'running';
+let resumeImpl: ((ctx: FakeAudioContext) => Promise<void>) | null = null;
+let contextsConstructed = 0;
+let statesAtNoteScheduling: string[] = [];
+
 class FakeAudioContext {
-  state = 'running';
+  state = initialState;
   currentTime = 0;
   destination = {};
+  constructor() {
+    contextsConstructed++;
+  }
+  resume(): Promise<void> {
+    if (resumeImpl) return resumeImpl(this);
+    // Like the real API, the state flips only when the promise resolves.
+    return Promise.resolve().then(() => {
+      this.state = 'running';
+    });
+  }
+  close(): Promise<void> {
+    this.state = 'closed';
+    return Promise.resolve();
+  }
   createOscillator() {
     oscillatorsCreated++;
+    statesAtNoteScheduling.push(this.state);
     const node = {
       type: '',
       frequency: { value: 0 },
@@ -48,6 +69,10 @@ let alarm: AlarmPort;
 beforeEach(async () => {
   vi.useFakeTimers();
   oscillatorsCreated = 0;
+  initialState = 'running';
+  resumeImpl = null;
+  contextsConstructed = 0;
+  statesAtNoteScheduling = [];
   vi.stubGlobal('AudioContext', FakeAudioContext);
   vi.resetModules();
   alarm = (await import('./alarm')).AlarmAdapter;
@@ -105,5 +130,74 @@ describe('AlarmAdapter', () => {
     const base = chimesPlayed();
     vi.advanceTimersByTime(2_600);
     expect(chimesPlayed()).toBe(base + 1); // one interval, not two
+  });
+
+  // WebKit suspends (or marks 'interrupted' — its non-standard state) an
+  // AudioContext that idled through a whole session: by completion time the
+  // context unlocked at Start is dead, and notes scheduled into it never
+  // sound. The chime must bring the context back to 'running' FIRST and only
+  // then schedule notes.
+  describe('dead-context recovery (long idle session)', () => {
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
+
+    it("resumes a context in WebKit's 'interrupted' state before scheduling notes", async () => {
+      initialState = 'interrupted';
+      alarm.unlock();
+      alarm.start();
+      await flushMicrotasks();
+      expect(chimesPlayed()).toBe(1);
+      expect(statesAtNoteScheduling).toEqual(['running', 'running']);
+    });
+
+    it('schedules notes only after a suspended context has actually resumed', async () => {
+      initialState = 'suspended';
+      alarm.unlock();
+      alarm.start();
+      await flushMicrotasks();
+      expect(chimesPlayed()).toBe(1);
+      expect(statesAtNoteScheduling).toEqual(['running', 'running']);
+    });
+
+    it('rebuilds the context from scratch when resume() is rejected', async () => {
+      initialState = 'interrupted';
+      alarm.unlock(); // creates context #1, stuck interrupted
+      resumeImpl = (ctx) => {
+        if (contextsConstructed === 1) return Promise.reject(new Error('interrupted'));
+        return Promise.resolve().then(() => {
+          ctx.state = 'running';
+        });
+      };
+      initialState = 'suspended'; // replacement starts suspended (no gesture)
+      alarm.start();
+      await flushMicrotasks();
+      expect(contextsConstructed).toBe(2);
+      expect(chimesPlayed()).toBe(1);
+      expect(statesAtNoteScheduling).toEqual(['running', 'running']);
+    });
+
+    it('a healthy running context still chimes synchronously', () => {
+      alarm.start();
+      expect(chimesPlayed()).toBe(1); // no microtask flush needed
+    });
+
+    it('recovery that finishes after the alarm was dismissed stays silent', async () => {
+      initialState = 'interrupted';
+      alarm.unlock();
+      let finishResume: () => void = () => {};
+      resumeImpl = (ctx) =>
+        new Promise<void>((resolve) => {
+          finishResume = () => {
+            ctx.state = 'running';
+            resolve();
+          };
+        });
+      alarm.start();
+      alarm.stop(); // dismissed (or auto-stopped) while resume is in flight
+      finishResume();
+      await flushMicrotasks();
+      expect(chimesPlayed()).toBe(0);
+    });
   });
 });

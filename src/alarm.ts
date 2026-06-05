@@ -40,13 +40,50 @@ function getAudio(): AudioContext | null {
       ctx = null;
     }
   }
-  if (ctx && ctx.state === 'suspended') void ctx.resume();
   return ctx;
+}
+
+/**
+ * Bring the context back to 'running' before scheduling notes. A context that
+ * idled through a whole session (e.g. music via Spotify, so the webview never
+ * produced audio) can be 'suspended' — or WebKit's non-standard 'interrupted'
+ * — by completion time, and notes scheduled into it never sound. If resume()
+ * is rejected the context is beyond saving: rebuild it from scratch.
+ */
+async function recoverAudio(): Promise<AudioContext | null> {
+  let c = getAudio();
+  if (!c || c.state === 'running') return c;
+  try {
+    await c.resume();
+    return c;
+  } catch {
+    void c.close().catch(() => {});
+    ctx = null;
+    c = getAudio();
+    if (!c) return null;
+    try {
+      if (c.state !== 'running') await c.resume();
+      return c;
+    } catch {
+      return null; // the 2.6s chime interval retries recovery
+    }
+  }
 }
 
 function chime(): void {
   const c = getAudio();
   if (!c) return;
+  if (c.state !== 'running') {
+    void recoverAudio().then((rc) => {
+      // Skip if the alarm was dismissed/auto-stopped while resume was in flight.
+      if (rc && intervalId !== null) scheduleChime(rc);
+    });
+    return;
+  }
+  scheduleChime(c);
+}
+
+function scheduleChime(c: AudioContext): void {
   const now = c.currentTime;
   CHIME_NOTES_HZ.forEach((f, i) => {
     const o = c.createOscillator();
@@ -80,7 +117,9 @@ async function notify(): Promise<void> {
 
 export const AlarmAdapter: AlarmPort = {
   unlock() {
-    getAudio();
+    // Create AND resume within the user gesture — a fresh context may start
+    // out 'suspended' until a gesture-scoped resume().
+    void recoverAudio();
   },
   start() {
     this.stop();
