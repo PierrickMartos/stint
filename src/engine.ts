@@ -40,6 +40,11 @@ export class TimerEngine {
     private alarm: AlarmPort,
     private music: MusicPort,
     private onChange: () => void,
+    // Prevents macOS App Nap from suspending the process (and freezing the rAF
+    // tick / setTimeout fallback) while a session runs or the alarm rings —
+    // without it, a backgrounded Spotify session produces no webview audio, so
+    // the OS naps us and completion never fires. No-op outside Tauri/macOS.
+    private setKeepAwake: (on: boolean) => void = () => {},
   ) {}
 
   persist(): void {
@@ -87,6 +92,7 @@ export class TimerEngine {
     }
 
     if (this.mode === 'running') {
+      this.setKeepAwake(true);
       this.loop();
       // Resuming a still-running session on relaunch brings the music back;
       // the adapter handles autoplay-policy rejection internally.
@@ -135,6 +141,7 @@ export class TimerEngine {
     // (covers starting a preset straight from the ringing done state).
     this.alarm.stop();
     this.alarm.unlock();
+    this.setKeepAwake(true);
     this.music.start();
     this.total = sec;
     this.remaining = sec;
@@ -152,6 +159,7 @@ export class TimerEngine {
 
   pause(): void {
     this.clearTimers();
+    this.setKeepAwake(false);
     this.music.pause();
     this.remaining = Math.max(0, (this.endTime - Date.now()) / 1000);
     this.mode = 'paused';
@@ -160,6 +168,7 @@ export class TimerEngine {
   }
 
   resume(): void {
+    this.setKeepAwake(true);
     this.music.resume();
     this.endTime = Date.now() + this.remaining * 1000;
     this.mode = 'running';
@@ -170,6 +179,7 @@ export class TimerEngine {
 
   cancel(): void {
     this.clearTimers();
+    this.setKeepAwake(false);
     this.alarm.stop();
     this.music.stop();
     this.remaining = this.total;
@@ -182,6 +192,10 @@ export class TimerEngine {
   private complete(): void {
     this.clearTimers();
     this.mode = 'done';
+    // Deliberately keep the process awake here: the chime loops for up to 10s
+    // and a backgrounded done-state produces no other webview audio, so
+    // releasing now could let App Nap suspend us mid-alarm. stopSound() (or
+    // starting a new session) releases it.
     // Music out before the chime comes in.
     this.music.stop();
     this.alarm.start();
@@ -197,6 +211,7 @@ export class TimerEngine {
   stopSound(): void {
     this.alarm.stop();
     this.music.stop();
+    this.setKeepAwake(false);
     this.clearTimers();
     this.mode = 'idle';
     this.remaining = this.total;

@@ -10,7 +10,7 @@ import { TimerEngine } from './engine';
 import { AlarmAdapter } from './alarm';
 import { MusicAdapter, sourceLabel } from './music';
 import { loadSettings, saveSettings } from './settings';
-import { isTauri, resizeWindow, wireDragRegions } from './shell';
+import { isTauri, resizeWindow, setKeepAwake, wireDragRegions } from './shell';
 
 const PRESETS = [5, 10, 15, 30];
 const COMPACT_KEY = 'stint.compact';
@@ -87,7 +87,9 @@ MusicAdapter.setEnabled(settings.music);
 MusicAdapter.setVolume(settings.volume);
 MusicAdapter.setSource(settings.musicSource);
 
-const engine = new TimerEngine(AlarmAdapter, MusicAdapter, render);
+const engine = new TimerEngine(AlarmAdapter, MusicAdapter, render, (on) =>
+  void setKeepAwake(on),
+);
 
 // ── Build preset buttons ─────────────────────────────────────────────────────
 function presetButton(p: number, small: boolean): HTMLButtonElement {

@@ -24,3 +24,10 @@ log = "0.4"
 tauri = { version = "2.11.2", features = ["macos-private-api"] }
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
+
+# macOS-only: NSProcessInfo activity API to prevent App Nap from suspending the
+# process (and freezing the completion timers) while a session runs. Versions
+# match what Tauri already resolves, so no extra copy enters the build tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSProcessInfo", "NSString"] }

@@ -30,7 +30,9 @@ function makePorts() {
 
 function makeEngine() {
   const ports = makePorts();
-  const engine = new TimerEngine(ports.alarm, ports.music, () => {});
+  const engine = new TimerEngine(ports.alarm, ports.music, () => {}, (on) =>
+    ports.calls.push(on ? 'keep:on' : 'keep:off'),
+  );
   return { engine, ...ports };
 }
 
@@ -155,5 +157,65 @@ describe('cancel / restart / dismiss', () => {
     expect(engine.remaining).toBe(5);
     expect(calls).toContain('alarm.stop');
     expect(calls).toContain('music.stop');
+  });
+});
+
+describe('keep-awake (prevents background App Nap)', () => {
+  it('acquires keep-awake when a session starts', () => {
+    const { engine, calls } = makeEngine();
+    engine.startWith(60);
+    expect(calls).toContain('keep:on');
+  });
+
+  it('stays awake through completion so the background chime can play', () => {
+    const { engine, calls } = makeEngine();
+    engine.startWith(5);
+    calls.length = 0;
+    vi.advanceTimersByTime(6_000);
+    expect(engine.mode).toBe('done');
+    // Must NOT release on complete: the 10s chime needs the process un-napped.
+    expect(calls).not.toContain('keep:off');
+  });
+
+  it('releases keep-awake when the done state is dismissed', () => {
+    const { engine, calls } = makeEngine();
+    engine.startWith(5);
+    vi.advanceTimersByTime(6_000);
+    calls.length = 0;
+    engine.stopSound();
+    expect(calls).toContain('keep:off');
+  });
+
+  it('releases on pause and re-acquires on resume', () => {
+    const { engine, calls } = makeEngine();
+    engine.startWith(60);
+    calls.length = 0;
+    engine.pause();
+    expect(calls).toContain('keep:off');
+    calls.length = 0;
+    engine.resume();
+    expect(calls).toContain('keep:on');
+  });
+
+  it('releases keep-awake on cancel', () => {
+    const { engine, calls } = makeEngine();
+    engine.startWith(60);
+    calls.length = 0;
+    engine.cancel();
+    expect(calls).toContain('keep:off');
+  });
+
+  it('re-acquires keep-awake when restoring a still-running session', () => {
+    const first = makeEngine();
+    first.engine.startWith(600);
+    vi.advanceTimersByTime(10_000);
+
+    const ports = makePorts();
+    const engine = new TimerEngine(ports.alarm, ports.music, () => {}, (on) =>
+      ports.calls.push(on ? 'keep:on' : 'keep:off'),
+    );
+    engine.restore();
+    expect(engine.mode).toBe('running');
+    expect(ports.calls).toContain('keep:on');
   });
 });
