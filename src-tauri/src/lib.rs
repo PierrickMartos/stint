@@ -55,11 +55,57 @@ async fn spotify_control(action: String, uri: Option<String>) -> Result<(), Stri
   }
 }
 
+/// Prevent macOS App Nap from suspending the process while a focus session is
+/// running (or the completion alarm is ringing). App Nap freezes JS timers in
+/// the webview, so a backgrounded session that produces no webview audio — the
+/// Spotify case — would never reach completion. We hold an `NSProcessInfo`
+/// activity for the session's lifetime; `UserInitiatedAllowingIdleSystemSleep`
+/// blocks App Nap without forcing the whole Mac to stay awake.
+#[cfg(target_os = "macos")]
+mod keep_awake {
+  use objc2::rc::Retained;
+  use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+  use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+  use std::sync::Mutex;
+
+  struct Token(Retained<ProtocolObject<dyn NSObjectProtocol>>);
+  // SAFETY: NSProcessInfo activity tokens are thread-safe per Apple's docs;
+  // begin/endActivity may be called from any thread. We only ever touch the
+  // token under the Mutex below.
+  unsafe impl Send for Token {}
+
+  static ACTIVITY: Mutex<Option<Token>> = Mutex::new(None);
+
+  pub fn set(active: bool) {
+    let mut guard = ACTIVITY.lock().unwrap();
+    if active {
+      if guard.is_none() {
+        let token = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+          NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+          &NSString::from_str("Stint focus timer running"),
+        );
+        *guard = Some(Token(token));
+      }
+    } else if let Some(token) = guard.take() {
+      // SAFETY: `token` came from beginActivityWithOptions on this same process.
+      unsafe { NSProcessInfo::processInfo().endActivity(&token.0) };
+    }
+  }
+}
+
+#[tauri::command]
+fn set_keep_awake(active: bool) {
+  #[cfg(target_os = "macos")]
+  keep_awake::set(active);
+  #[cfg(not(target_os = "macos"))]
+  let _ = active;
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_notification::init())
-    .invoke_handler(tauri::generate_handler![spotify_control])
+    .invoke_handler(tauri::generate_handler![spotify_control, set_keep_awake])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

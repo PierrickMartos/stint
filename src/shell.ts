@@ -39,6 +39,21 @@ export function wireDragRegions(): void {
 }
 
 /**
+ * Hold the process awake while a session runs or the alarm rings (macOS App
+ * Nap prevention via the `set_keep_awake` Rust command). Without it, a
+ * backgrounded Spotify session produces no webview audio, so the OS suspends
+ * the process and the completion timers never fire. No-op outside Tauri.
+ */
+export async function setKeepAwake(on: boolean): Promise<void> {
+  if (!isTauri) return;
+  try {
+    await invoke('set_keep_awake', { active: on });
+  } catch {
+    /* best-effort — the timer still works, just nap-able in the background */
+  }
+}
+
+/**
  * Drive the local Spotify desktop app (macOS only) via the `spotify_control`
  * Rust command. Resolves false outside Tauri or on any command error so
  * music.ts can fall back to the bundled track.
